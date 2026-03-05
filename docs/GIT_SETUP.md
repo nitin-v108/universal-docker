@@ -12,6 +12,8 @@ How to set up Git for this boilerplate and manage updates.
 cd laravel-docker-env
 git init
 git add .
+git config --global user.email "nitinv@vedlogic.com"
+git config --global user.name "nitin-v108"
 git commit -m "Initial commit: Docker Laravel boilerplate v1.0.0"
 ```
 
@@ -23,7 +25,7 @@ git commit -m "Initial commit: Docker Laravel boilerplate v1.0.0"
 ### 3. Connect and Push
 
 ```bash
-git remote add origin https://github.com/yourusername/laravel-docker-env.git
+git remote add origin https://github.com/nitin-v108/universal-docker.git
 git branch -M main
 git push -u origin main
 
