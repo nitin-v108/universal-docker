@@ -1,0 +1,103 @@
+# ============================================
+# Docker Laravel Boilerplate - Git Ignore
+# ============================================
+# Excludes large data files, logs, and sensitive information.
+
+# ============================================
+# Environment & Secrets
+# ============================================
+.env
+.env.local
+.env.*.local
+
+# ============================================
+# Storage - Database Files
+# ============================================
+# MySQL/MariaDB data (generated when containers start)
+storage/mysql/*
+!storage/mysql/.gitkeep
+
+# MongoDB data (generated when containers start)
+storage/mongodb/*
+!storage/mongodb/.gitkeep
+
+# MongoDB restore: keep README and .gitkeep, exclude dump data
+storage/mongodb-restore/*
+!storage/mongodb-restore/.gitkeep
+!storage/mongodb-restore/README.md
+
+# Redis data dumps
+storage/redis/*
+!storage/redis/.gitkeep
+
+# ============================================
+# Storage - Log Files
+# ============================================
+# Log files grow large and are environment-specific
+storage/logs/**/*
+!storage/logs/.gitkeep
+!storage/logs/**/.gitkeep
+
+# ============================================
+# Projects Directory
+# ============================================
+# Each project has its own Git repository
+# We only version control the Docker environment
+projects/*
+!projects/.gitkeep
+!projects/README.md
+
+# Laravel/Node project artifacts (if accidentally present)
+projects/*/vendor/
+projects/*/node_modules/
+projects/*/storage/logs/
+projects/*/storage/framework/
+projects/*/bootstrap/cache/
+projects/*/.env
+
+# ============================================
+# IDE & Editor Files
+# ============================================
+.vscode/
+!.vscode/settings.json.example
+!.vscode/launch.json.example
+.cursorrules
+.cursor/
+
+# ============================================
+# Docker
+# ============================================
+docker-compose.override.yml
+docker-compose.*.yml
+!docker-compose.yml
+
+# ============================================
+# Temporary Files
+# ============================================
+*.tmp
+*.temp
+*.log
+*.pid
+*.seed
+*.pid.lock
+backup_*.sql
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# ============================================
+# Miscellaneous
+# ============================================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# MariaDB init backup
+docker/mariadb/init/*.bak
+
+# Windows zone identifier (copy from browser/other PC)
+*:Zone.Identifier

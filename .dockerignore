@@ -1,0 +1,9 @@
+projects/*/node_modules
+projects/*/vendor
+projects/*/storage/logs
+projects/*/storage/framework
+storage/
+.git
+.env
+*.md
+!.dockerignore

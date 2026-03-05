@@ -1,0 +1,217 @@
+# Laravel Docker Development Environment
+# Replicates production: one Nginx, one PHP-FPM, one MariaDB, one Redis
+# Node.js (Credit Control API), MongoDB 8
+# Multiple Laravel projects in ./projects (e.g. project1, project2, credit-control)
+
+services:
+  nginx:
+    image: nginx:1.26-alpine
+    container_name: laravel-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./projects:/var/www:ro
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/sites:/etc/nginx/sites-available:ro
+      - ./storage/logs/nginx:/var/log/nginx
+    depends_on:
+      php:
+        condition: service_healthy
+      php56:
+        condition: service_started
+      credit-control:
+        condition: service_started
+      credit-control-frontend:
+        condition: service_started
+    networks:
+      laravel-network:
+        aliases:
+          # So containers (credit-control, etc.) can reach Laravel apps by vhost hostname
+          - dev-um.integra-paybill2.co.uk
+          - dev-cc-api.integra-paybill2.co.uk
+          - dev-cc.integra-paybill2.co.uk
+          - dev.integra-paybill2.co.uk
+          - dev-clientportal.integra-paybill2.co.uk
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "--header=Host: healthcheck", "http://127.0.0.1:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  php:
+    build:
+      context: ./docker/php
+      dockerfile: Dockerfile
+    container_name: laravel-php
+    volumes:
+      - ./projects:/var/www
+      - ./docker/php/php.ini:/usr/local/etc/php/php.ini:ro
+      - ./docker/php/php-fpm.conf:/usr/local/etc/php-fpm.d/www.conf:ro
+      - ./docker/supervisor/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:ro
+      - ./storage/logs/php:/var/log/php
+      - mariadb-socket:/run/mysqld
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - APP_ENV=${APP_ENV:-local}
+      - XDEBUG_MODE=${XDEBUG_MODE:-off}
+      - XDEBUG_CLIENT_HOST=${XDEBUG_CLIENT_HOST:-host.docker.internal}
+      - XDEBUG_START_WITH_REQUEST=${XDEBUG_START_WITH_REQUEST:-no}
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - laravel-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "php-fpm -t || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # PHP 5.6-FPM for legacy TTM (core PHP) – other projects use the php (8.3) service
+  php56:
+    build:
+      context: ./docker/php56
+      dockerfile: Dockerfile
+    container_name: laravel-php56
+    volumes:
+      - ./projects:/var/www
+    environment:
+      - TTM_MYSQL_HOST=mariadb
+    networks:
+      - laravel-network
+    restart: unless-stopped
+
+  mariadb:
+    image: mariadb:10.11
+    container_name: laravel-mariadb
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DATABASE=mysql
+    volumes:
+      - ./storage/mysql:/var/lib/mysql
+      - ./docker/mariadb/my.cnf:/etc/mysql/conf.d/custom.cnf:ro
+      - ./docker/mariadb/init:/docker-entrypoint-initdb.d:ro
+      - mariadb-socket:/run/mysqld
+    networks:
+      - laravel-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:8.0-alpine
+    container_name: laravel-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./storage/redis:/data
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: ["sh", "-c", "redis-server /usr/local/etc/redis/redis.conf --requirepass \"$$REDIS_PASSWORD\""]
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    networks:
+      - laravel-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  credit-control-frontend:
+    build:
+      context: ./docker/node
+      dockerfile: Dockerfile
+    container_name: laravel-credit-control-frontend
+    working_dir: /var/www/credit-control-frontend
+    volumes:
+      - ./projects:/var/www
+      - ./docker/vite/credit-control-frontend.config.ts:/var/www/credit-control-frontend/vite.config.docker.ts:ro
+    environment:
+      - NODE_ENV=development
+      - VITE_API_BASE_URL=http://dev-cc-api.integra-paybill2.co.uk/api/v1/
+    command: ["bash", "-c", ". $$NVM_DIR/nvm.sh && nvm use 24 && npm install && exec npx vite --config vite.config.docker.ts"]
+    networks:
+      - laravel-network
+    restart: unless-stopped
+
+  credit-control:
+    build:
+      context: ./docker/node
+      dockerfile: Dockerfile
+    container_name: laravel-credit-control
+    volumes:
+      - ./projects:/var/www
+      - ./storage/logs/credit-control:/var/www/credit-control/logs
+    environment:
+      - NODE_ENV=development
+      - APP_ENV=local
+      - APP_PORT=8085
+      - APP_ENABLE_LOG=true
+      - APP_MODE=debug
+      - LIST_CACHE_ENABLED=${LIST_CACHE_ENABLED:-true}
+      - LIST_CACHE_TTL_SECONDS=${LIST_CACHE_TTL_SECONDS:-3600}
+      - HEALTH_CHECK_URL=http://127.0.0.1:8085
+      - MONGO_STORE_HOST_OVERRIDE=mongodb
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+      - MONGO_DB_BASE_URI=mongodb://${MONGO_CC_ADMIN_USER}:${MONGO_CC_ADMIN_PASSWORD}@mongodb:27017/credit_control?authSource=admin
+      - MONGO_DB_PREFIX=cc_
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - laravel-network
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:8
+    container_name: laravel-mongodb
+    ports:
+      - "27018:27017"   # 27018 on host to avoid conflict with local Windows MongoDB (27017)
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=root
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-root}
+      - MONGO_CC_ADMIN_USER=${MONGO_CC_ADMIN_USER:-ccDevAdm}
+      - MONGO_CC_ADMIN_PASSWORD=${MONGO_CC_ADMIN_PASSWORD}
+    volumes:
+      - ./storage/mongodb:/data/db
+      - ./docker/mongodb/init:/docker-entrypoint-initdb.d:ro
+      - ./docker/mongodb/mongod.conf:/etc/mongod.conf:ro
+    command: ["mongod", "--config", "/etc/mongod.conf", "--auth"]
+    networks:
+      - laravel-network
+    restart: unless-stopped
+    healthcheck:
+      # Use -u/-p so password (may contain ! etc.) is not broken by shell/URI
+      test: ["CMD-SHELL", "mongosh --username root --password \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.adminCommand('ping')\" localhost:27017 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+networks:
+  laravel-network:
+    driver: bridge
+
+volumes:
+  mariadb-socket:
